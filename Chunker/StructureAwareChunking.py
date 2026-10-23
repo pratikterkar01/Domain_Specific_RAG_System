@@ -2,7 +2,7 @@ from langchain_core.documents import Document
 
 class StructureAwareChunking:
 
-    def structure_aware_chunking(doc):
+    def structure_aware_chunking(self,doc):
         """
         Create structure-aware chunks from a DoclingDocument.
 

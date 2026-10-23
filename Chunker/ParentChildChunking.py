@@ -1,114 +1,106 @@
 from langchain_core.documents import Document
 
-class ParentChildChunking:
-    def __init__(self):
-        pass
-    def get_page_number(self,item):
-        prov = getattr(item, "prov", None)
 
+class ParentChildChunking:
+
+    def get_page_number(self, item):
+        prov = getattr(item, "prov", None)
         if prov:
             try:
                 return prov[0].page_no
             except Exception:
                 pass
-
         return None
 
-    def create_parent_child_chunks(self,doc):
-
-        parents = []
-        current_parent = None
-        parent_content = []
+    def create_parent_child_chunks(self, doc):
+        parents = []          # list of Document (parent)
+        children = []         # list of Document (child)
 
         parent_id = 0
         child_id = 0
 
-        for item, level in doc.iterate_items():
+        current = None        # dict holding the in-progress parent
 
-            item_type = item.__class__.__name__
+        def start_parent(title, level, page):
+            nonlocal parent_id
+            parent_id += 1
+            return {
+                "parent_id": f"parent_{parent_id}",
+                "title": title,
+                "level": level,
+                "page": page,
+                "items": [],   # list of (text, page, content_type)
+            }
 
-            text = getattr(item, "text", None)
+        def finish_parent(p):
+            nonlocal child_id
+            if p is None or not p["items"]:
+                return
 
-            if text:
-                text = text.strip()
+            full_text = "\n".join(t for t, _, _ in p["items"]).strip()
+            if not full_text:
+                return
 
-            # -------------------------------------------------
-            # New heading
-            # -------------------------------------------------
+            parents.append(
+                Document(
+                    page_content=full_text,
+                    metadata={
+                        "chunk_type": "parent",
+                        "parent_id": p["parent_id"],
+                        "title": p["title"],
+                        "level": p["level"],
+                        "page": p["page"],
+                    },
+                )
+            )
 
-            if item_type in ["SectionHeaderItem", "TitleItem"]:
-
-                # Save previous parent
-                if current_parent is not None:
-                    current_parent["content"] = "\n".join(
-                        parent_content
-                    ).strip()
-
-                    parents.append(current_parent)
-
-                # Create new parent
-                parent_id += 1
-
-                current_parent = {
-                    "parent_id": f"parent_{parent_id}",
-                    "title": text,
-                    "level": level,
-                    "content": ""
-                }
-
-                parent_content = []
-
-                continue
-
-            # -------------------------------------------------
-            # Normal text
-            # -------------------------------------------------
-
-            if text:
-                parent_content.append(text)
-
-        # -----------------------------------------------------
-        # Save final parent
-        # -----------------------------------------------------
-
-        if current_parent is not None:
-            current_parent["content"] = "\n".join(
-                parent_content
-            ).strip()
-
-            parents.append(current_parent)
-
-        # -----------------------------------------------------
-        # Create child chunks
-        # -----------------------------------------------------
-
-        child_documents = []
-
-        for parent in parents:
-
-            content = parent["content"]
-
-            # Simple paragraph-based child splitting
-            paragraphs = [
-                p.strip()
-                for p in content.split("\n")
-                if p.strip()
-            ]
-
-            for paragraph in paragraphs:
+            for text, page, ctype in p["items"]:
                 child_id += 1
-
-                child_documents.append(
+                children.append(
                     Document(
-                        page_content=paragraph,
+                        page_content=text,
                         metadata={
                             "chunk_type": "child",
+                            "content_type": ctype,
                             "child_id": f"child_{child_id}",
-                            "parent_id": parent["parent_id"],
-                            "parent_title": parent["title"],
-                            "parent_level": parent["level"]
-                        }
+                            "parent_id": p["parent_id"],
+                            "parent_title": p["title"],
+                            "parent_level": p["level"],
+                            "page": page,
+                        },
                     )
                 )
 
-        return parents, child_documents
+        for item, level in doc.iterate_items():
+            item_type = item.__class__.__name__
+            page = self.get_page_number(item)
+
+            # ---- Heading: start a new parent ----
+            if item_type in ("SectionHeaderItem", "TitleItem"):
+                finish_parent(current)
+                title = (getattr(item, "text", "") or "").strip()
+                current = start_parent(title, level, page)
+                continue
+
+            # Content before any heading -> create an intro parent
+            if current is None:
+                current = start_parent("Introduction", 0, page)
+
+            # ---- Table ----
+            if item_type == "TableItem":
+                try:
+                    table_text = item.export_to_markdown(doc)
+                except Exception:
+                    table_text = str(item)
+                if table_text.strip():
+                    current["items"].append((table_text, page, "table"))
+                continue
+
+            # ---- Normal text ----
+            text = (getattr(item, "text", None) or "").strip()
+            if text:
+                current["items"].append((text, page, "text"))
+
+        finish_parent(current)
+
+        return parents, children

@@ -1,4 +1,3 @@
-from docling.document_converter import DocumentConverter
 from langchain_core.documents import Document
 import re
 
@@ -106,10 +105,10 @@ class ContextualTokenAwareChunking:
         # --------------------------------------------------------
         # Process one parent section
         # --------------------------------------------------------
-        def count_tokens(self,text):
+        def count_tokens(text):
             return len(self.tokenize(text))
 
-        def process_parent(self,parent):
+        def process_parent(parent):
             nonlocal child_counter
             for element in parent["content"]:
                 content_type = element["type"]
