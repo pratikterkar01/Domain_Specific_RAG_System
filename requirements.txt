@@ -1,0 +1,24 @@
+# PDF parsing and document ingestion
+docling
+docling-core
+
+# LangChain integration
+langchain-core
+langchain-huggingface
+langchain-qdrant
+
+# Embedding models / PyTorch
+sentence-transformers
+transformers
+torch
+torchvision
+
+# Vector database
+qdrant-client
+
+# Configuration and validation
+pydantic
+pydantic-settings
+
+# Optional: useful for loading environment variables from .env files
+python-dotenv
