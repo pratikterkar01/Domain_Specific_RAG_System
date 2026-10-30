@@ -12,7 +12,9 @@ sentence-transformers
 transformers
 torch
 torchvision
-
+sentence-transformers
+rank-bm25
+openpyxl
 # Vector database
 qdrant-client
 

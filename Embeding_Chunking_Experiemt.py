@@ -17,11 +17,12 @@ from langchain_qdrant import QdrantVectorStore
 global_Variable = Config.get_settings()
 
 dbRoot = global_Variable.DB_ROOT
-PARENTS_FILE = "parents.json"
-MANIFEST_FILE = "ingest_manifest.json"
+
 
 
 # ============================== small helpers ===============================
+
+##
 def doc_slug(document_name):
     base = os.path.splitext(os.path.basename(str(document_name)))[0]
     base = re.sub(r"[^A-Za-z0-9]+", "_", base).strip("_")[:25] or "doc"
@@ -37,7 +38,7 @@ def chunks_fingerprint(chunks):
 
 def load_manifest(db_path):
     try:
-        with open(os.path.join(db_path, MANIFEST_FILE), encoding="utf-8") as f:
+        with open(os.path.join(db_path, global_Variable.MANIFEST_FILE), encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
@@ -45,15 +46,15 @@ def load_manifest(db_path):
 
 def save_manifest(db_path, manifest):
     os.makedirs(db_path, exist_ok=True)
-    tmp = os.path.join(db_path, MANIFEST_FILE + ".tmp")
+    tmp = os.path.join(db_path, global_Variable.MANIFEST_FILE + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, os.path.join(db_path, MANIFEST_FILE))
+    os.replace(tmp, os.path.join(db_path, global_Variable.MANIFEST_FILE))
 
 
 def save_parents(db_path, parents, source):
     """Merge this PDF's parents into parents.json (other PDFs are kept)."""
-    path = os.path.join(db_path, PARENTS_FILE)
+    path = os.path.join(db_path, global_Variable.PARENTS_FILE)
     data = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
@@ -67,14 +68,14 @@ def save_parents(db_path, parents, source):
 
 
 def load_parents(db_path):
-    with open(os.path.join(db_path, PARENTS_FILE), encoding="utf-8") as f:
+    with open(os.path.join(db_path, global_Variable.PARENTS_FILE), encoding="utf-8") as f:
         data = json.load(f)
     return {pid: Document(**d) for pid, d in data.items()}
 
 
 def parents_present(db_path, source):
     try:
-        with open(os.path.join(db_path, PARENTS_FILE), encoding="utf-8") as f:
+        with open(os.path.join(db_path, global_Variable.PARENTS_FILE), encoding="utf-8") as f:
             return any(d["metadata"].get("source") == source for d in json.load(f).values())
     except (FileNotFoundError, json.JSONDecodeError):
         return False
@@ -124,11 +125,7 @@ def execute_all_combinations(documen_parse, document_name):
             chunk_cache[name] = chunks
         return chunk_cache[name]
 
-    embedding_models = {
-        "BGE-M3": "BAAI/bge-m3",
-        "bge-small-en-v1.5": "BAAI/bge-small-en-v1.5",
-        "multilingual-E5-base": "intfloat/multilingual-e5-base",
-    }
+    embedding_models = global_Variable.EMBEDDING_MODELS
 
     results = {"done": [], "skipped": [], "failed": {}}
     vector_stores = {}

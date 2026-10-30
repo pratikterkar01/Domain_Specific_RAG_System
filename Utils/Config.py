@@ -16,10 +16,12 @@ class Settings(BaseSettings):
     PROJECT_ROOT: str = os.path.dirname(CURRENT_DIR)
     # 3. Create your DB path cleanly
     DB_ROOT: str = os.path.join(PROJECT_ROOT, "DB")
+    PARENTS_FILE:str = "parents.json"
+    MANIFEST_FILE:str = "ingest_manifest.json"
     EMBEDDING_MODELS:dict = {
-        "BGE-M3_Embeding": "BAAI/bge-m3",
-        "bge-small-en-v15_Embeding": "BAAI/bge-small-en-v1.5",
-        "multilingual-E5-base_Embeding": "intfloat/multilingual-e5-base",
+        "BGE-M3": "BAAI/bge-m3",
+        "bge-small-en-v1.5": "BAAI/bge-small-en-v1.5",
+        "multilingual-E5-base": "intfloat/multilingual-e5-base",
     }
 
     CHUNKING_FOLDERS:dict = {
@@ -27,6 +29,26 @@ class Settings(BaseSettings):
         "hierarchical": "HierarchicalChunking",
         "context_aware": "ContextuaTokenAwareChunking",
     }
+
+
+
+    # --------------------------------------------------------------------------
+    # CONFIG: change these to match how your 9 collections were written
+    # --------------------------------------------------------------------------
+    TEXT_FIELD:str = "text"  # payload key holding the child chunk text
+    PARENT_ID_FIELD:str = "parent_id"  # payload key linking a child to its parent section
+    PARENT_TEXT_FIELD:str = "parent_text"  # payload key with the full parent section (if stored)
+    SOURCE_FIELD:str = "source"  # e.g. document name, used for citations
+    SECTION_FIELD :str= "section"  # e.g. "6.5.1", used for citations
+    VECTOR_NAME:str = None  # None for an unnamed vector, or e.g. "dense"
+
+    DENSE_TOP_K:int = 50
+    BM25_TOP_K :int= 50
+    RRF_K:int = 60
+    RERANK_POOL:int = 30  # how many fused candidates the cross-encoder scores
+    FINAL_TOP_K:int = 5
+    RERANKER_NAME:str = "BAAI/bge-reranker-v2-m3"
+
 
     class ConfigDict:
         env_file = ".env"
