@@ -27,7 +27,6 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 from Utils import Config,logger
 from qdrant_client import QdrantClient, models
 from rank_bm25 import BM25Okapi
@@ -37,7 +36,8 @@ from Model import RetrivalClass
 global_Variable = Config.get_settings()
 logger = logger.get_logger(__name__)
 DEFAULT_PATH = "./qdrant_db"   # folder you used with QdrantClient(path=...)
-
+TEXT_FIELD = None
+VECTOR_NAME = None
 ## Find which DB present and initialize them
 def make_client(path: str = DEFAULT_PATH) -> QdrantClient:
     logger.info("Inside make_client, Open the local Qdrant folder (embedded mode, no server). Fails if the folder does not exist.")
@@ -56,35 +56,45 @@ def make_client(path: str = DEFAULT_PATH) -> QdrantClient:
     return client
 
 
-TEXT_CANDIDATES = ("text", "page_content", "content", "chunk_text", "chunk")
 
 
 def flat(payload: dict | None) -> dict:
     """LangChain-style payloads nest section/source under 'metadata'; lift them to the top level."""
-    payload = payload or {}
-    meta = payload.get("metadata")
+    logger.info("Inside flat, pass payload")
+    try:
+        payload = payload or {}
+        meta = payload.get("metadata")
+        logger.info(f"Flat meta data: {meta}")
+    except Exception as e:
+        logger.error(f"Internal system error for flat : {e}")
     return {**meta, **payload} if isinstance(meta, dict) else payload
 
 
 def autodetect_fields(client: QdrantClient, collection: str):
     """Set the vector name and text field for THIS collection (your 9 DBs may differ). Returns (vector_size, payload_keys, n_points)."""
-    global TEXT_FIELD, VECTOR_NAME
-    info = client.get_collection(collection)
-    vecs = info.config.params.vectors
-    if isinstance(vecs, dict):  # named vectors
-        VECTOR_NAME = next(iter(vecs))
-        size = vecs[VECTOR_NAME].size
-    else:
-        VECTOR_NAME, size = None, vecs.size
-    pts, _ = client.scroll(collection, limit=1, with_payload=True, with_vectors=False)
-    keys = list(flat(pts[0].payload).keys()) if pts else []
-    for c in (TEXT_FIELD, *TEXT_CANDIDATES):
-        if c in keys:
-            TEXT_FIELD = c
-            break
-    else:
-        raise SystemExit(f"[{collection}] no text field found in payload keys {keys}. Set TEXT_FIELD at the top of hybrid_rag.py.")
-    return size, keys, info.points_count
+    logger.info("Inside autodetect_fields, set vector name and text field")
+    try:
+        global TEXT_FIELD, VECTOR_NAME
+        info = client.get_collection(collection)
+        vecs = info.config.params.vectors
+        logger.info(f"Vector name: {vecs}")
+        if isinstance(vecs, dict):  # named vectors
+            VECTOR_NAME = next(iter(vecs))
+            size = vecs[VECTOR_NAME].size
+        else:
+            VECTOR_NAME, size = None, vecs.size
+        pts, _ = client.scroll(collection, limit=1, with_payload=True, with_vectors=False)
+        keys = list(flat(pts[0].payload).keys()) if pts else []
+        for c in (TEXT_FIELD, *global_Variable.TEXT_CANDIDATES):
+            if c in keys:
+                TEXT_FIELD = c
+                break
+        else:
+            raise SystemExit(f"[{collection}] no text field found in payload keys {keys}. Set TEXT_FIELD at the top of hybrid_rag.py.")
+        return size, keys, info.points_count
+    except Exception as e:
+        logger.error(f"[{collection}] failed to autodetect field : {e}")
+        raise SystemExit(f"[{collection}] failed to autodetect field : {e}")
 
 # --------------------------------------------------------------------------
 # BM25 (built once from the chunks already stored in Qdrant)

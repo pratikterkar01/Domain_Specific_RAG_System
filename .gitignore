@@ -2,3 +2,5 @@
 DB
 venv
 Pdf_Doc_Parsing
+logs
+DB_hybrid

@@ -35,13 +35,14 @@ import torch
 import pandas as pd
 from qdrant_client import QdrantClient
 from sentence_transformers import CrossEncoder, SentenceTransformer
-
-from Retrival import HybrideRetrival as H
-
+from Utils import Config
+from Retrival import HybrideRetrival  as H
+from Model import RetrivalClass
 KS = (1, 3, 5, 10)
 DEBUG_N = 0  # set by --debug
+ENGINE = "manual"  # set by --engine
 POOL: list = []  # top-5 hits of every DB, for pooled labelling (--export-pool)
-
+global_variable = Config.get_settings()
 
 # --------------------------------------------------------------------------
 # 1. Relevance judgement: does a retrieved chunk answer the question?
@@ -116,12 +117,12 @@ def has_number(n: str, text: str) -> bool:
     return re.search(rf"(?<![\d.]){re.escape(n)}(?![\d]|\.\d)", text) is not None
 
 
-def overlap_score(hit: H.Hit, q: dict) -> float:
+def overlap_score(hit: RetrivalClass.Hit, q: dict) -> float:
     """Share of the ground-truth answer's key words found in the chunk (shown in --debug to tune --overlap)."""
     return round(len(q["words"] & content_words(hit.text)) / len(q["words"]), 2) if q["words"] else -1.0
 
 
-def is_relevant(hit: H.Hit, q: dict, mode: str) -> bool:
+def is_relevant(hit: RetrivalClass.Hit, q: dict, mode: str) -> bool:
     """
     clause : chunk is from the right document AND mentions / is labelled with an accepted clause
     answer : chunk contains every key number of the ground-truth answer
@@ -132,10 +133,10 @@ def is_relevant(hit: H.Hit, q: dict, mode: str) -> bool:
             page = int(hit.payload.get("page"))
         except (TypeError, ValueError):
             return False
-        return (src_key(hit.payload.get(H.SOURCE_FIELD, "")), page) in q["gold_pages"]
-    text = norm(hit.text + " " + hit.payload.get(H.PARENT_TEXT_FIELD, ""))
-    section = norm(hit.payload.get(H.SECTION_FIELD) or hit.payload.get("parent_title", ""))
-    source = norm(hit.payload.get(H.SOURCE_FIELD, ""))
+        return (src_key(hit.payload.get(global_variable.SOURCE_FIELD, "")), page) in q["gold_pages"]
+    text = norm(hit.text + " " + hit.payload.get(global_variable.PARENT_TEXT_FIELD, ""))
+    section = norm(hit.payload.get(global_variable.SECTION_FIELD) or hit.payload.get("parent_title", ""))
+    source = norm(hit.payload.get(global_variable.SOURCE_FIELD, ""))
 
     src_ok = (not q["sources"]) or any(s and (s in source or source in s or s.split(" ")[0] in source) for s in q["sources"]) \
         or not source  # payload without a source field: do not penalise
@@ -201,8 +202,13 @@ def run_collection(client, cfg, questions, mode, embedders, reranker):
         raise SystemExit(f"[{cfg['label']}] vectors in the DB have {size} dims but {model} produces {dim}. "
                          "This DB was built with a different embedding model.")
     print(f"   {n} chunks | vector size {size} | payload keys: {keys}")
-    ret = H.HybridRetriever(client, cfg["name"], model, embedder=embedders[model], reranker=reranker,
-                            query_prefix=cfg.get("query_prefix", ""))
+    if ENGINE == "native":  # BM25 + dense + RRF all inside Qdrant (DB converted with qdrant_hybrid.py)
+        from Retrival import qdrant_hybrid as Q
+        ret = Q.NativeHybridRetriever(client, cfg["name"], model, embedder=embedders[model], reranker=reranker,
+                                      query_prefix=cfg.get("query_prefix", ""))
+    else:
+        ret = H.HybridRetriever(client, cfg["name"], model, embedder=embedders[model], reranker=reranker,
+                                query_prefix=cfg.get("query_prefix", ""))
 
     ret.search(questions[0]["question"], top_k=10)  # warm-up: keeps model start-up out of the latency numbers
 
@@ -214,8 +220,8 @@ def run_collection(client, cfg, questions, mode, embedders, reranker):
             print(f"   {idx}/{len(questions)} questions | {el:.0f}s elapsed | ~{el / idx * (len(questions) - idx):.0f}s left", flush=True)
         top, t = ret.search(q["question"], top_k=10)  # parallel BM25 + dense -> RRF -> rerank
         for h in top[:5]:
-            POOL.append((q["question"], str(h.payload.get(H.SOURCE_FIELD)), h.payload.get("page"),
-                         h.payload.get(H.SECTION_FIELD) or h.payload.get("parent_title"), h.text[:200], cfg["label"]))
+            POOL.append((q["question"], str(h.payload.get(global_variable.SOURCE_FIELD)), h.payload.get("page"),
+                         h.payload.get(global_variable.SECTION_FIELD) or h.payload.get("parent_title"), h.text[:200], cfg["label"]))
         rel = [is_relevant(h, q, mode) for h in top]
         m = metrics_for(rel)
         if DEBUG_N and questions.index(q) < DEBUG_N:
@@ -225,9 +231,9 @@ def run_collection(client, cfg, questions, mode, embedders, reranker):
         review = {"expected_answer": q["answer"][:300], "labelled_source": "; ".join(sorted(q["sources"]))}
         for i, (h, r) in enumerate(zip(top[:3], rel[:3]), 1):
             review[f"top{i}_relevant"] = r
-            review[f"top{i}_source"] = h.payload.get(H.SOURCE_FIELD)
+            review[f"top{i}_source"] = h.payload.get(global_variable.SOURCE_FIELD)
             review[f"top{i}_page"] = h.payload.get("page")
-            review[f"top{i}_section"] = h.payload.get(H.SECTION_FIELD) or h.payload.get("parent_title")
+            review[f"top{i}_section"] = h.payload.get(global_variable.SECTION_FIELD) or h.payload.get("parent_title")
             review[f"top{i}_text"] = h.text[:300]
         rows.append({"collection": cfg["label"], "question": q["question"], "category": q["category"],
                      "difficulty": q["difficulty"], "qtype": q["qtype"],
@@ -277,12 +283,14 @@ def main():
     ap.add_argument("--only", default=None, help="evaluate only DBs whose path contains this text, e.g. Hierarchical")
     ap.add_argument("--match", default="answer", choices=["clause", "answer", "either", "page"],
                     help="answer = ground-truth answer content (default); page = Gold Pages column (recommended); clause = section labels")
-    ap.add_argument("--pool", type=int, default=H.RERANK_POOL, help="fused candidates sent to the reranker")
+    ap.add_argument("--pool", type=int, default=global_variable.RERANK_POOL, help="fused candidates sent to the reranker")
     ap.add_argument("--out", default="retrieval_results")
     ap.add_argument("--overlap", type=float, default=0.6, help="min share of ground-truth answer key words a chunk must contain (text answers)")
     ap.add_argument("--limit", type=int, default=0, help="use only the first N questions (quick test run)")
     ap.add_argument("--rerank-max-len", type=int, default=512, help="reranker max tokens per chunk; 256 is about 2x faster on CPU")
     ap.add_argument("--export-pool", action="store_true", help="write label_pool.csv: candidate pages gathered from all DBs, to speed up labelling Gold Pages")
+    ap.add_argument("--engine", default="manual", choices=["manual", "native"],
+                    help="manual = BM25 built in Python; native = hybrid inside Qdrant (DBs converted by qdrant_hybrid.py)")
     ap.add_argument("--audit", action="store_true", help="only list the source files inside the DB vs the test file, then exit")
     ap.add_argument("--debug", type=int, default=0, help="print top-3 chunks and the relevance verdict for the first N questions")
     args = ap.parse_args()
@@ -290,7 +298,9 @@ def main():
     DEBUG_N = args.debug
     global OVERLAP
     OVERLAP = args.overlap
-    H.RERANK_POOL = args.pool
+    global_variable.RERANK_POOL = args.pool
+    global ENGINE
+    ENGINE = args.engine
 
     df = pd.read_excel(args.test) if args.test.lower().endswith((".xlsx", ".xls")) else pd.read_csv(args.test)
     df.columns = [c.strip() for c in df.columns]
@@ -336,13 +346,13 @@ def main():
                 H.autodetect_fields(client, c.name)
                 _, _, payloads = H.load_all_chunks(client, c.name)
                 print(f"\nDB {db}  collection {c.name}  source files inside:")
-                for k, v in Counter(p.get(H.SOURCE_FIELD) for p in payloads).most_common():
+                for k, v in Counter(p.get(global_variable.SOURCE_FIELD) for p in payloads).most_common():
                     print(f"   {v:6d} chunks  {k}")
                 print("   parent_title examples:", [p.get("parent_title") for p in payloads[:5]])
             client.close()
         return
 
-    reranker = CrossEncoder(H.RERANKER_NAME, max_length=args.rerank_max_len, device=DEVICE)
+    reranker = CrossEncoder(global_variable.RERANKER_NAME, max_length=args.rerank_max_len, device=DEVICE)
     if DEVICE == "cuda":
         reranker.model.half()
         print(f"Using GPU: {torch.cuda.get_device_name(0)} (fp16)", flush=True)
