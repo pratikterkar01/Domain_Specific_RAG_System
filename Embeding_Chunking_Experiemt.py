@@ -7,12 +7,8 @@ import json
 from Utils import Config
 from Chunker import Ingestion,StructureAwareChunking,ParentChildChunking,ContextualTokenAwareChunking
 from Embeding.Embeding import Embeding
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.embeddings import Embeddings
-from qdrant_client import QdrantClient, models
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import QdrantVectorStore
+
 
 global_Variable = Config.get_settings()
 
@@ -252,7 +248,7 @@ def parse_and_save_all_pdfs():
 
 if __name__ == "__main__":
     #parse_and_save_all_pdfs()
-    pdf_names = run_experiment()
+     pdf_names = run_experiment()
     #run_experiment()
 
 

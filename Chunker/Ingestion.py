@@ -15,10 +15,6 @@ class Ingestion:
         result = converter.convert(pdf_path)
         return result.document
 
-    @staticmethod
-    def parse_pdf(pdf_path: str) -> DoclingDocument:
-        converter = DocumentConverter()
-        return converter.convert(pdf_path).document
 
     ## save in the text format
     @staticmethod

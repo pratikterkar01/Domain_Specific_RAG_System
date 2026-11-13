@@ -6,7 +6,7 @@ docling-core
 langchain-core
 langchain-huggingface
 langchain-qdrant
-
+langchain-ollama
 # Embedding models / PyTorch
 sentence-transformers
 transformers

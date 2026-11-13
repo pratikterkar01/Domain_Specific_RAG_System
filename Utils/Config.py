@@ -1,5 +1,4 @@
 from pydantic_settings import  BaseSettings
-from pydantic import ConfigDict
 from functools import lru_cache
 import os
 
@@ -86,7 +85,10 @@ class Settings(BaseSettings):
 
     Question: {question}
     Answer:"""
-
+    STYLES :dict= {
+        "technical": "",
+        "plain": "Explain in plain English for a non-engineer, but keep every number and every [n] citation exact.",
+    }
     class ConfigDict:
         env_file = ".env"
 
