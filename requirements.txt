@@ -7,20 +7,23 @@ langchain-core
 langchain-huggingface
 langchain-qdrant
 langchain-ollama
-# Embedding models / PyTorch
+langchain_community
+# Embedding models /
+ PyTorch
 sentence-transformers
 transformers
 torch
 torchvision
 sentence-transformers
 rank-bm25
-openpyxl
 # Vector database
 qdrant-client
-
 # Configuration and validation
 pydantic
 pydantic-settings
 
+
+## evalution
+ragas
 # Optional: useful for loading environment variables from .env files
 python-dotenv

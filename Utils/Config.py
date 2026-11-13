@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     RERANK_POOL:int = 30  # how many fused candidates the cross-encoder scores
     FINAL_TOP_K:int = 5
     RERANKER_NAME:str = "BAAI/bge-reranker-v2-m3"
+    USED_EMBEDDING_MODELS:str = "BAAI/bge-small-en-v1.5"
     TEXT_CANDIDATES:tuple = ("text", "page_content", "content", "chunk_text", "chunk")
 
     ABSTAIN_TEXT:str = "Not found in the documents."
