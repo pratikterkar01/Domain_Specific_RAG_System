@@ -15,7 +15,7 @@ Install:
 Your collections are read from a local Qdrant folder (no server needed).
 
 Usage:
-    python hybrid_rag.py --path ./qdrant_db --collection my_collection_name --query "What is the minimum COP in Section 6.5.1?"
+    python HybrideRetrival.py --path ./qdrant_db --collection my_collection_name --query "What is the minimum COP in Section 6.5.1?"
 
 IMPORTANT: --embed-model must be the SAME model that built the collection you query
 (BGE-M3 for BGE-M3 collections, multilingual-e5-base for E5 ones, and so on).

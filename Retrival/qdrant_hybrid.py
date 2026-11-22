@@ -33,15 +33,11 @@ import time
 import zlib
 from collections import Counter
 
-from Chunker.ChunkerExperient import global_Variable
 from Utils import Config
 from qdrant_client import QdrantClient, models
 from  Model import RetrivalClass
 
-DENSE = "dense"
-SPARSE = "bm25"
-K1, B = 1.5, 0.75
-TEXT_CANDIDATES = ("text", "page_content", "content", "chunk_text", "chunk")
+
 global_Variable = Config.get_settings()
 _TOKEN = re.compile(r"[A-Za-z0-9]+(?:[.\-/][A-Za-z0-9]+)*")  # keeps 6.5.1, kW/m2, ECBC-2017 as one word
 
@@ -64,7 +60,7 @@ def encode_doc(text: str, avgdl: float) -> models.SparseVector:
     idx, val = [], []
     for term, tf in Counter(tokens).items():
         idx.append(token_id(term))
-        val.append(tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * dl / avgdl)))
+        val.append(tf * (global_Variable.K1 + 1.0) / (tf + global_Variable.K1 * (1.0 - global_Variable.B + global_Variable.B * dl / avgdl)))
     return models.SparseVector(indices=idx, values=val)
 
 
@@ -83,8 +79,8 @@ def create_hybrid_collection(client: QdrantClient, name: str, dense_size: int,
     """The configuration that must exist BEFORE the chunks are inserted."""
     client.create_collection(
         collection_name=name,
-        vectors_config={DENSE: models.VectorParams(size=dense_size, distance=distance)},
-        sparse_vectors_config={SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
+        vectors_config={global_Variable.DENSE: models.VectorParams(size=dense_size, distance=distance)},
+        sparse_vectors_config={global_Variable.SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
     )
 
 
@@ -97,7 +93,7 @@ def build_hybrid_db(db_path: str, collection: str, chunks: list[dict], embed_fn,
         part = chunks[s:s + batch]
         dense = embed_fn([c["text"] for c in part])
         client.upsert(collection, wait=True, points=[
-            models.PointStruct(id=c["id"], vector={DENSE: dense[i], SPARSE: encode_doc(c["text"], avgdl)},
+            models.PointStruct(id=c["id"], vector={global_Variable.DENSE: dense[i], global_Variable.SPARSE: encode_doc(c["text"], avgdl)},
                                payload={**c.get("payload", {}), "page_content": c["text"]})
             for i, c in enumerate(part)])
     client.close()
@@ -111,7 +107,7 @@ def _flat(payload: dict | None) -> dict:
 
 def _text_of(payload: dict | None) -> str:
     p = _flat(payload)
-    for k in TEXT_CANDIDATES:
+    for k in global_Variable.TEXT_CANDIDATES:
         if k in p:
             return p[k] or ""
     return ""
@@ -143,8 +139,8 @@ def convert_collection(src: QdrantClient, src_name: str, dst: QdrantClient, dst_
             dst.upsert(dst_name, wait=True, points=[
                 models.PointStruct(
                     id=pt.id,
-                    vector={DENSE: pt.vector[old_name] if isinstance(pt.vector, dict) else pt.vector,
-                            SPARSE: encode_doc(_text_of(pt.payload), avgdl)},
+                    vector={global_Variable.DENSE: pt.vector[old_name] if isinstance(pt.vector, dict) else pt.vector,
+                            global_Variable.SPARSE: encode_doc(_text_of(pt.payload), avgdl)},
                     payload=pt.payload) for pt in pts])
             done += len(pts)
             if done % 5000 < batch:
@@ -199,7 +195,7 @@ def check(db: str, n: int = 20) -> None:
         q = encode_query(_text_of(p.payload))
         if q is None:
             continue
-        top = client.query_points(coll, query=q, using=SPARSE, limit=3).points
+        top = client.query_points(coll, query=q, using=global_Variable.SPARSE, limit=3).points
         ok += int(p.id in [t.id for t in top])
     print(f"keyword search returns the chunk itself in its top 3 for {ok} of {len(pts)} sampled chunks (expect nearly all)")
     client.close()
@@ -214,8 +210,8 @@ class NativeHybridRetriever:
         self.H = H
         self.client, self.collection, self.query_prefix = client, collection, query_prefix
         info = client.get_collection(collection)
-        if SPARSE not in (info.config.params.sparse_vectors or {}):
-            raise SystemExit(f"[{collection}] has no '{SPARSE}' sparse vector. Convert the DB first: python qdrant_hybrid.py convert ...")
+        if global_Variable.SPARSE not in (info.config.params.sparse_vectors or {}):
+            raise SystemExit(f"[{collection}] has no '{global_Variable.SPARSE}' sparse vector. Convert the DB first: python qdrant_hybrid.py convert ...")
         if embedder is None:
             from sentence_transformers import SentenceTransformer
             embedder = SentenceTransformer(embed_model)
@@ -225,7 +221,6 @@ class NativeHybridRetriever:
         self.embedder, self.reranker = embedder, reranker
 
     def retrieve(self, query: str, section=None, source=None):
-        H = self.H
         conds = []
         if section:
             conds.append(models.FieldCondition(key=global_Variable.SECTION_FIELD, match=models.MatchValue(value=section)))
@@ -234,10 +229,10 @@ class NativeHybridRetriever:
         flt = models.Filter(must=conds) if conds else None
 
         dense_vec = self.embedder.encode(self.query_prefix + query, normalize_embeddings=True).tolist()
-        prefetch = [models.Prefetch(query=dense_vec, using=DENSE, limit=global_Variable.DENSE_TOP_K, filter=flt)]
+        prefetch = [models.Prefetch(query=dense_vec, using=global_Variable.DENSE, limit=global_Variable.DENSE_TOP_K, filter=flt)]
         sparse = encode_query(query)
         if sparse is not None:
-            prefetch.append(models.Prefetch(query=sparse, using=SPARSE, limit=global_Variable.BM25_TOP_K, filter=flt))
+            prefetch.append(models.Prefetch(query=sparse, using=global_Variable.SPARSE, limit=global_Variable.BM25_TOP_K, filter=flt))
         res = self.client.query_points(
             collection_name=self.collection, prefetch=prefetch,
             query=models.RrfQuery(rrf=models.Rrf(k=global_Variable.RRF_K)),

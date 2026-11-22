@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     RRF_K:int = 60
     RERANK_POOL:int = 30  # how many fused candidates the cross-encoder scores
     FINAL_TOP_K:int = 5
+    OVERLAP :float= 0.6  # set by --overlap
+    DENSE:str = "dense"
+    SPARSE:str = "bm25"
+    K1:float = 1.5
+    B:float = 0.75
+    TEXT_CANDIDATES = ("text", "page_content", "content", "chunk_text", "chunk")
     RERANKER_NAME:str = "BAAI/bge-reranker-v2-m3"
     USED_EMBEDDING_MODELS:str = "BAAI/bge-small-en-v1.5"
     TEXT_CANDIDATES:tuple = ("text", "page_content", "content", "chunk_text", "chunk")

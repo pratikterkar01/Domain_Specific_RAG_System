@@ -28,12 +28,9 @@ import os
 import math
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 
-import numpy as np
 import torch
 import pandas as pd
-from qdrant_client import QdrantClient
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from Utils import Config
 from Retrival import HybrideRetrival  as H
@@ -68,7 +65,7 @@ def key_numbers(answer: str) -> list[str]:
     return list(dict.fromkeys(nums))
 
 
-OVERLAP = 0.6  # set by --overlap
+
 _STOP = {"that", "this", "with", "from", "have", "been", "which", "their", "there", "under", "into", "also", "such",
          "these", "those", "shall", "where", "when", "than", "more", "most", "each", "other", "only", "some", "used",
          "using", "apply", "applies", "applicable", "between", "within", "building", "buildings", "code", "ecbc",
@@ -156,7 +153,7 @@ def is_relevant(hit: RetrivalClass.Hit, q: dict, mode: str) -> bool:
     if q["numbers"]:  # numeric answers: every number must appear in the chunk
         answer_ok = all(has_number(n, text) for n in q["numbers"])
     else:  # text answers: enough of the ground-truth answer's key words must appear in the chunk
-        answer_ok = bool(q["words"]) and len(q["words"] & content_words(text)) / len(q["words"]) >= OVERLAP
+        answer_ok = bool(q["words"]) and len(q["words"] & content_words(text)) / len(q["words"]) >= global_variable.OVERLAP
 
     return {"clause": clause_ok, "answer": answer_ok, "either": clause_ok or answer_ok}[mode]
 
@@ -227,7 +224,7 @@ def run_collection(client, cfg, questions, mode, embedders, reranker):
         if DEBUG_N and questions.index(q) < DEBUG_N:
             print(f"\n   Q: {q['question'][:90]}\n      accepted clauses: {q['clauses'][:6]} | answer numbers: {q['numbers']} | sources: {list(q['sources'])[:2]}")
             for i, (h, r) in enumerate(zip(top[:3], rel[:3]), 1):
-                print(f"      #{i} relevant={r} overlap={overlap_score(h, q)} (needs {OVERLAP}) section={h.payload.get(H.SECTION_FIELD) or h.payload.get('parent_title')!r} source={h.payload.get(H.SOURCE_FIELD)!r} | {h.text[:110]!r}")
+                print(f"      #{i} relevant={r} overlap={overlap_score(h, q)} (needs {global_variable.OVERLAP}) section={h.payload.get(global_variable.SECTION_FIELD) or h.payload.get('parent_title')!r} source={h.payload.get(H.SOURCE_FIELD)!r} | {h.text[:110]!r}")
         review = {"expected_answer": q["answer"][:300], "labelled_source": "; ".join(sorted(q["sources"]))}
         for i, (h, r) in enumerate(zip(top[:3], rel[:3]), 1):
             review[f"top{i}_relevant"] = r
@@ -296,15 +293,14 @@ def main():
     args = ap.parse_args()
     global DEBUG_N
     DEBUG_N = args.debug
-    global OVERLAP
-    OVERLAP = args.overlap
+    global_variable.OVERLAP = args.overlap
     global_variable.RERANK_POOL = args.pool
     global ENGINE
     ENGINE = args.engine
 
     df = pd.read_excel(args.test) if args.test.lower().endswith((".xlsx", ".xls")) else pd.read_csv(args.test)
     df.columns = [c.strip() for c in df.columns]
-    questions = build_questions(df)
+    questions = build_questions(df)  ## collections is hte data frame of the question dataset file
     print(f"{len(df)} rows -> {len(questions)} unique questions")
     if args.limit:
         questions = questions[:args.limit]
